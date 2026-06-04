@@ -422,6 +422,21 @@ main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 60px; }
   color: #fff;
 }
 
+.assignee-filter {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'Zen Kaku Gothic New', sans-serif;
+  white-space: nowrap;
+}
+
+.assignee-filter:focus { outline: none; border-color: var(--accent2); }
+
 .search-box {
   flex: 1;
   min-width: 200px;
@@ -847,6 +862,9 @@ tbody tr:hover { background: #faf8f5; }
         <button class="filter-btn" onclick="setFilter('進行中',this)">進行中</button>
         <button class="filter-btn" onclick="setFilter('完了',this)">完了</button>
       </div>
+      <select id="assignee-filter" class="assignee-filter" onchange="setAssigneeFilter(this.value)">
+        <option value="all">担当者：全員</option>
+      </select>
       <div class="search-box">
         <span class="search-icon">🔍</span>
         <input type="text" id="search" placeholder="タスク名・メモ・カテゴリで検索…" oninput="render()">
@@ -881,7 +899,7 @@ tbody tr:hover { background: #faf8f5; }
 
     <div class="fg">
       <label>タスク名 <span style="color:var(--high)">*</span></label>
-      <input type="text" id="f-name" placeholder="例：楽天営業メール 第2弾送信">
+      <input type="text" id="f-name" placeholder="タスク名を入力">
     </div>
     <div class="fg">
       <label>メモ・詳細</label>
@@ -908,11 +926,11 @@ tbody tr:hover { background: #faf8f5; }
     <div class="fg-row">
       <div class="fg">
         <label>カテゴリ（自由入力）</label>
-        <input type="text" id="f-cat" placeholder="例：営業・STORES・EC運用">
+        <input type="text" id="f-cat" placeholder="カテゴリを入力">
       </div>
       <div class="fg">
         <label>担当者</label>
-        <input type="text" id="f-who" placeholder="例：なお・山川">
+        <input type="text" id="f-who" placeholder="担当者名を入力">
       </div>
     </div>
     <div class="fg-row">
@@ -1010,6 +1028,7 @@ function copyGas() {
 // ─────────────────────────────────────────
 let tasks = [];
 let filter = 'all';
+let assigneeFilter = 'all';
 let gasUrl = '';
 let sheetId = '';
 let sheetName = '進捗管理';
@@ -1128,6 +1147,7 @@ async function loadTasks() {
 // ─────────────────────────────────────────
 function renderAll() {
   renderKPI();
+  populateAssigneeFilter();
   render();
 }
 
@@ -1157,6 +1177,7 @@ function render() {
   const q = document.getElementById('search').value.toLowerCase();
   let list = tasks.filter(t => {
     if (filter !== 'all' && t.ステータス !== filter) return false;
+    if (assigneeFilter !== 'all' && (t.担当者 || '') !== assigneeFilter) return false;
     if (q) {
       const hay = [t.タスク名, t.メモ, t.カテゴリ, t.担当者].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
@@ -1212,6 +1233,23 @@ function setFilter(f, el) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
   render();
+}
+
+function setAssigneeFilter(v) {
+  assigneeFilter = v;
+  render();
+}
+
+// 担当者プルダウンをデータから自動生成
+function populateAssigneeFilter() {
+  const sel = document.getElementById('assignee-filter');
+  if (!sel) return;
+  const names = [...new Set(tasks.map(t => (t.担当者 || '').trim()).filter(Boolean))].sort();
+  // 選択中の担当者がリストから消えた場合は「全員」に戻す
+  if (assigneeFilter !== 'all' && !names.includes(assigneeFilter)) assigneeFilter = 'all';
+  sel.innerHTML = '<option value="all">担当者：全員</option>'
+    + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value = assigneeFilter;
 }
 
 // ─────────────────────────────────────────
