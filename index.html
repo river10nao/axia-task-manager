@@ -567,6 +567,103 @@ tbody tr:hover { background: #faf8f5; }
 
 .empty-state p { font-size: 14px; margin-top: 8px; }
 
+/* ===== BOARD ===== */
+.board {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: flex-start;
+}
+
+.board-col {
+  flex: 0 0 260px;
+  width: 260px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.board-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-col-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.board-col-count {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'DM Mono', monospace;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 1px 8px;
+}
+
+.board-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 12px;
+}
+
+.board-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+
+.board-card-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.board-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.board-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.board-card-req {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.board-empty {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  padding: 12px 0;
+}
+
 /* ===== MODAL ===== */
 .overlay {
   display: none;
@@ -865,6 +962,10 @@ tbody tr:hover { background: #faf8f5; }
       <select id="assignee-filter" class="assignee-filter" onchange="setAssigneeFilter(this.value)">
         <option value="all">担当者：全員</option>
       </select>
+      <div class="filter-group" id="view-toggle">
+        <button class="filter-btn active" id="view-table-btn" onclick="setView('table')">テーブル</button>
+        <button class="filter-btn" id="view-board-btn" onclick="setView('board')">ボード</button>
+      </div>
       <div class="search-box">
         <span class="search-icon">🔍</span>
         <input type="text" id="search" placeholder="タスク名・メモ・カテゴリで検索…" oninput="render()">
@@ -888,6 +989,9 @@ tbody tr:hover { background: #faf8f5; }
         <tbody id="tbody"></tbody>
       </table>
     </div>
+
+    <!-- Board -->
+    <div id="board" class="board" style="display:none"></div>
   </main>
 </div>
 
@@ -925,23 +1029,33 @@ tbody tr:hover { background: #faf8f5; }
     </div>
     <div class="fg-row">
       <div class="fg">
-        <label>カテゴリ（自由入力）</label>
-        <input type="text" id="f-cat" placeholder="カテゴリを入力">
+        <label>カテゴリ</label>
+        <select id="f-cat" onchange="onCategoryChange(this.value)"></select>
       </div>
       <div class="fg">
         <label>担当者</label>
-        <input type="text" id="f-who" placeholder="担当者名を入力">
+        <select id="f-who" onchange="onWhoChange(this.value)">
+          <option value="">担当者を選択</option>
+        </select>
+        <input type="text" id="f-who-other" placeholder="担当者名を入力" style="display:none;margin-top:8px">
       </div>
     </div>
     <div class="fg-row">
       <div class="fg">
+        <label>依頼者</label>
+        <select id="f-requester" onchange="onRequesterChange(this.value)">
+          <option value="">（依頼者なし）</option>
+        </select>
+        <input type="text" id="f-requester-other" placeholder="依頼者名を入力" style="display:none;margin-top:8px">
+      </div>
+      <div class="fg">
         <label>期限</label>
         <input type="date" id="f-due">
       </div>
-      <div class="fg">
-        <label>作成日</label>
-        <input type="date" id="f-created" readonly style="background:var(--bg);color:var(--muted)">
-      </div>
+    </div>
+    <div class="fg">
+      <label>作成日</label>
+      <input type="date" id="f-created" readonly style="background:var(--bg);color:var(--muted)">
     </div>
 
     <div class="modal-foot">
@@ -970,8 +1084,13 @@ function handleReq(e) {
   let sh = ss.getSheetByName(sheetName);
   if (!sh) {
     sh = ss.insertSheet(sheetName);
-    sh.appendRow(['ID','タスク名','ステータス','優先度','カテゴリ','担当者','期限','メモ','作成日']);
+    sh.appendRow(['ID','タスク名','ステータス','優先度','カテゴリ','担当者','期限','メモ','作成日','依頼者']);
   }
+  // 依頼者列をヘッダー名で動的解決（無ければ自動作成）
+  const lastCol = Math.max(sh.getLastColumn(), 9);
+  const headerRow = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  let reqCol = headerRow.indexOf('依頼者') + 1;
+  if (reqCol === 0) { reqCol = sh.getLastColumn() + 1; sh.getRange(1, reqCol).setValue('依頼者'); }
   let result = {};
   const action = p.action || 'get';
 
@@ -989,6 +1108,7 @@ function handleReq(e) {
     const id = Date.now().toString();
     const today = Utilities.formatDate(new Date(),'Asia/Tokyo','yyyy/MM/dd');
     sh.appendRow([id, p.name, p.status, p.priority, p.category, p.assignee, p.due, p.memo, today]);
+    sh.getRange(sh.getLastRow(), reqCol).setValue(p.requester || '');
     result = { ok: true, id };
 
   } else if (action === 'update') {
@@ -1000,6 +1120,7 @@ function handleReq(e) {
     sh.getRange(row, 6).setValue(p.assignee);
     sh.getRange(row, 7).setValue(p.due);
     sh.getRange(row, 8).setValue(p.memo);
+    sh.getRange(row, reqCol).setValue(p.requester || '');
     result = { ok: true };
 
   } else if (action === 'status') {
@@ -1029,10 +1150,18 @@ function copyGas() {
 let tasks = [];
 let filter = 'all';
 let assigneeFilter = 'all';
+let view = 'table';
 let gasUrl = '';
 let sheetId = '';
 let sheetName = '進捗管理';
 let isDemo = false;
+
+// 基本メンバー（選択肢として常に表示）
+const ASSIGNEES = ['岡田','佐藤','十河','山川'];
+// カテゴリのプリセット
+const CATEGORY_PRESET = ['営業','業務管理'];
+const OTHER_VALUE = '__other__';
+const NEWCAT_VALUE = '__newcat__';
 
 const DEMO = [
   { _row:2, ID:'1', タスク名:'楽天営業メール 第2弾送信', ステータス:'進行中', 優先度:'高', カテゴリ:'楽天EC営業', 担当者:'なお', 期限:'2026/06/15', メモ:'未返信のショップへ追いメール', 作成日:'2026/06/01' },
@@ -1040,8 +1169,8 @@ const DEMO = [
   { _row:4, ID:'3', タスク名:'ナプラ 代理店登録 残店舗フォロー', ステータス:'未着手', 優先度:'中', カテゴリ:'ナプラ手続き', 担当者:'山川', 期限:'2026/06/30', メモ:'HG番号変更後、未登録分あり', 作成日:'2026/06/02' },
   { _row:5, ID:'4', タスク名:'ヤマト送料表 最新版をスプシ更新', ステータス:'完了', 優先度:'低', カテゴリ:'社内管理', 担当者:'なお', 期限:'2026/05/31', メモ:'2025/10/1改定後の料金反映済み', 作成日:'2026/05/20' },
   { _row:6, ID:'5', タスク名:'abc store japan 打ち合わせ', ステータス:'完了', 優先度:'高', カテゴリ:'楽天EC営業', 担当者:'なお', 期限:'2026/05/13', メモ:'5/13 12:00〜 打ち合わせ完了', 作成日:'2026/05/10' },
-  { _row:7, ID:'6', タスク名:'アポ店舗 進捗まとめ資料作成', ステータス:'未着手', 優先度:'中', カテゴリ:'営業管理', 担当者:'なお', 期限:'2026/06/25', メモ:'CRANE・HairHousecoron等の続報整理', 作成日:'2026/06/03' },
-  { _row:8, ID:'7', タスク名:'Loa EC販売フォローアップ', ステータス:'進行中', 優先度:'高', カテゴリ:'提携サロン', 担当者:'なお', 期限:'2026/06/10', メモ:'自社商品販売中。EC獲得案件', 作成日:'2026/06/01' },
+  { _row:7, ID:'6', タスク名:'アポ店舗 進捗まとめ資料作成', ステータス:'未着手', 優先度:'中', カテゴリ:'営業', 担当者:'十河', 依頼者:'佐藤', 期限:'2026/06/25', メモ:'CRANE・HairHousecoron等の続報整理', 作成日:'2026/06/03' },
+  { _row:8, ID:'7', タスク名:'Loa EC販売フォローアップ', ステータス:'進行中', 優先度:'高', カテゴリ:'営業', 担当者:'山川', 依頼者:'岡田', 期限:'2026/06/10', メモ:'自社商品販売中。EC獲得案件', 作成日:'2026/06/01' },
 ];
 
 // ─────────────────────────────────────────
@@ -1173,17 +1302,42 @@ function renderKPI() {
   document.getElementById('p-done').style.width = dW + '%';
 }
 
-function render() {
+// 検索・フィルタを適用したタスク一覧を返す（担当者フィルタを含めるかは引数で制御）
+function getFilteredTasks(applyAssignee = true) {
   const q = document.getElementById('search').value.toLowerCase();
-  let list = tasks.filter(t => {
+  return tasks.filter(t => {
     if (filter !== 'all' && t.ステータス !== filter) return false;
-    if (assigneeFilter !== 'all' && (t.担当者 || '') !== assigneeFilter) return false;
+    if (applyAssignee && assigneeFilter !== 'all' && (t.担当者 || '') !== assigneeFilter) return false;
     if (q) {
-      const hay = [t.タスク名, t.メモ, t.カテゴリ, t.担当者].join(' ').toLowerCase();
+      const hay = [t.タスク名, t.メモ, t.カテゴリ, t.担当者, t.依頼者].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   });
+}
+
+const PRI_ORDER = { '高': 0, '中': 1, '低': 2 };
+
+// 依頼者がいれば「依頼者 → 担当者」、いなければ担当者のみのHTMLを返す
+function assigneeDisplayHtml(t) {
+  const who = esc(t.担当者 || '—');
+  if (t.依頼者 && String(t.依頼者).trim()) {
+    return `<span class="board-card-req">${esc(t.依頼者)}</span> → ${who}`;
+  }
+  return who;
+}
+
+// view に応じてテーブル/ボードを描画するディスパッチャ
+function render() {
+  if (view === 'board') {
+    renderBoard();
+  } else {
+    renderTable();
+  }
+}
+
+function renderTable() {
+  let list = getFilteredTasks(true);
 
   const tbody = document.getElementById('tbody');
 
@@ -1196,8 +1350,7 @@ function render() {
   }
 
   // 優先度ソート
-  const pri = { '高': 0, '中': 1, '低': 2 };
-  list.sort((a,b) => (pri[a.優先度]||1) - (pri[b.優先度]||1));
+  list.sort((a,b) => (PRI_ORDER[a.優先度]||1) - (PRI_ORDER[b.優先度]||1));
 
   tbody.innerHTML = list.map(t => {
     const sc  = t.ステータス === '未着手' ? 'todo' : t.ステータス === '進行中' ? 'wip' : 'done';
@@ -1217,7 +1370,7 @@ function render() {
       <td><span class="tag ${pc}">${t.優先度 || '中'}</span></td>
       <td>${t.カテゴリ ? `<span class="cat-pill">${esc(t.カテゴリ)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
       <td><span class="task-date" style="${overdue?'color:var(--high);font-weight:700':''}">${overdue?'⚠ ':''}${due}</span></td>
-      <td><span style="font-size:13px">${esc(t.担当者 || '—')}</span></td>
+      <td><span style="font-size:13px">${assigneeDisplayHtml(t)}</span></td>
       <td>
         <div class="action-btns">
           <button class="icon-btn" onclick="openEditModal(${t._row})" title="編集">✏</button>
@@ -1228,9 +1381,81 @@ function render() {
   }).join('');
 }
 
+// 担当者別ボードを描画
+function renderBoard() {
+  const board = document.getElementById('board');
+  // 担当者フィルタは列分割と重複するが、選択されていれば従来通り適用
+  let list = getFilteredTasks(true);
+  list.sort((a,b) => (PRI_ORDER[a.優先度]||1) - (PRI_ORDER[b.優先度]||1));
+
+  // 列の決定: 基本4人 + データ由来のその他担当者 + 未割当（該当ありの時のみ）
+  const dataNames = [...new Set(tasks.map(t => (t.担当者 || '').trim()).filter(Boolean))];
+  const others = dataNames.filter(n => !ASSIGNEES.includes(n)).sort((a,b)=>a.localeCompare(b,'ja'));
+
+  const cols = [];
+  ASSIGNEES.forEach(n => cols.push({ name: n, items: list.filter(t => (t.担当者||'').trim() === n) }));
+  others.forEach(n => {
+    const items = list.filter(t => (t.担当者||'').trim() === n);
+    if (items.length) cols.push({ name: n, items });
+  });
+  const unassigned = list.filter(t => !(t.担当者||'').trim());
+  if (unassigned.length) cols.push({ name: '未割当', items: unassigned, unassigned: true });
+
+  board.innerHTML = cols.map(col => {
+    const cards = col.items.length
+      ? col.items.map(t => boardCardHtml(t)).join('')
+      : `<div class="board-empty">タスクなし</div>`;
+    return `<div class="board-col">
+      <div class="board-col-head">
+        <span class="board-col-name"${col.unassigned?' style="color:var(--muted)"':''}>${esc(col.name)}</span>
+        <span class="board-col-count">${col.items.length}</span>
+      </div>
+      <div class="board-col-body">${cards}</div>
+    </div>`;
+  }).join('');
+}
+
+// ボードのカード1枚のHTMLを返す
+function boardCardHtml(t) {
+  const sc  = t.ステータス === '未着手' ? 'todo' : t.ステータス === '進行中' ? 'wip' : 'done';
+  const pc  = t.優先度 === '高' ? 'high' : t.優先度 === '低' ? 'low' : 'mid';
+  const due = t.期限 ? String(t.期限).replace(/-/g,'/').substring(0,10) : '';
+  const overdue = t.期限 && t.ステータス !== '完了' && new Date(String(t.期限).replace(/\//g,'-')) < new Date();
+  const reqPrefix = (t.依頼者 && String(t.依頼者).trim())
+    ? `<span class="board-card-req">${esc(t.依頼者)} →</span> ` : '';
+  return `<div class="board-card">
+    <div class="board-card-title">${reqPrefix}${esc(t.タスク名)}</div>
+    <div class="board-card-tags">
+      <button class="status-btn" onclick="cycleStatus(${t._row})" title="クリックでステータス変更">
+        <span class="tag ${sc}">${t.ステータス || '未着手'}</span>
+      </button>
+      <span class="tag ${pc}">${t.優先度 || '中'}</span>
+      ${t.カテゴリ ? `<span class="cat-pill">${esc(t.カテゴリ)}</span>` : ''}
+    </div>
+    <div class="board-card-meta">
+      <span class="task-date" style="${overdue?'color:var(--high);font-weight:700':''}">${due ? (overdue?'⚠ ':'')+due : '—'}</span>
+      <div class="action-btns">
+        <button class="icon-btn" onclick="openEditModal(${t._row})" title="編集">✏</button>
+        <button class="icon-btn del" onclick="deleteTask(${t._row})" title="削除">🗑</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// テーブル/ボードの表示切替
+function setView(v) {
+  view = v;
+  document.getElementById('view-table-btn').classList.toggle('active', v === 'table');
+  document.getElementById('view-board-btn').classList.toggle('active', v === 'board');
+  document.querySelector('.table-wrap').style.display = v === 'table' ? '' : 'none';
+  document.getElementById('board').style.display = v === 'board' ? 'flex' : 'none';
+  render();
+}
+
 function setFilter(f, el) {
   filter = f;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  // ステータスフィルタのグループ内のみ active を切り替え（ビュー切替トグルには影響させない）
+  el.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
   render();
 }
@@ -1244,7 +1469,10 @@ function setAssigneeFilter(v) {
 function populateAssigneeFilter() {
   const sel = document.getElementById('assignee-filter');
   if (!sel) return;
-  const names = [...new Set(tasks.map(t => (t.担当者 || '').trim()).filter(Boolean))].sort();
+  // 基本4人は常に表示。データ由来の担当者もマージ。
+  const dataNames = [...new Set(tasks.map(t => (t.担当者 || '').trim()).filter(Boolean))];
+  const merged = [...ASSIGNEES, ...dataNames.filter(n => !ASSIGNEES.includes(n)).sort((a,b)=>a.localeCompare(b,'ja'))];
+  const names = merged;
   // 選択中の担当者がリストから消えた場合は「全員」に戻す
   if (assigneeFilter !== 'all' && !names.includes(assigneeFilter)) assigneeFilter = 'all';
   sel.innerHTML = '<option value="all">担当者：全員</option>'
@@ -1255,6 +1483,107 @@ function populateAssigneeFilter() {
 // ─────────────────────────────────────────
 // MODAL
 // ─────────────────────────────────────────
+// ── 担当者select ──
+// 担当者selectの選択肢を構築（先頭空 + 4人 + その他）
+function buildPersonOptions(emptyLabel) {
+  return `<option value="">${esc(emptyLabel)}</option>`
+    + ASSIGNEES.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    + `<option value="${OTHER_VALUE}">その他（自由入力）</option>`;
+}
+
+// 人物select（担当者/依頼者共通）に値をセット。4人以外の非空値は「その他」+ テキスト入力で復元
+function setPersonSelect(selId, otherId, value) {
+  const sel = document.getElementById(selId);
+  const other = document.getElementById(otherId);
+  const v = (value || '').trim();
+  if (v && ASSIGNEES.includes(v)) {
+    sel.value = v;
+    other.style.display = 'none';
+    other.value = '';
+  } else if (v) {
+    sel.value = OTHER_VALUE;
+    other.style.display = '';
+    other.value = v;
+  } else {
+    sel.value = '';
+    other.style.display = 'none';
+    other.value = '';
+  }
+}
+
+// 人物selectの実効値を取得（その他なら自由入力欄の値）
+function getPersonValue(selId, otherId) {
+  const sel = document.getElementById(selId);
+  if (sel.value === OTHER_VALUE) return document.getElementById(otherId).value.trim();
+  return sel.value;
+}
+
+function onWhoChange(v) {
+  const other = document.getElementById('f-who-other');
+  other.style.display = v === OTHER_VALUE ? '' : 'none';
+  if (v !== OTHER_VALUE) other.value = '';
+  else other.focus();
+}
+
+function onRequesterChange(v) {
+  const other = document.getElementById('f-requester-other');
+  other.style.display = v === OTHER_VALUE ? '' : 'none';
+  if (v !== OTHER_VALUE) other.value = '';
+  else other.focus();
+}
+
+// ── カテゴリselect ──
+// プリセット + localStorage + 既存タスクのカテゴリを重複排除して返す
+function getCategories() {
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem('jinks_cats') || '[]'); } catch(e) { stored = []; }
+  if (!Array.isArray(stored)) stored = [];
+  const fromTasks = tasks.map(t => (t.カテゴリ || '').trim()).filter(Boolean);
+  const rest = [...new Set([...stored, ...fromTasks])]
+    .filter(c => c && !CATEGORY_PRESET.includes(c))
+    .sort((a,b) => a.localeCompare(b,'ja'));
+  return [...CATEGORY_PRESET, ...rest];
+}
+
+// カテゴリselectを再構築し、selected を選択状態にする
+function populateCategorySelect(selected) {
+  const sel = document.getElementById('f-cat');
+  const cats = getCategories();
+  let opts = '<option value="">カテゴリを選択</option>'
+    + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  // selected が一覧に無ければ一時的に追加して選択できるようにする
+  if (selected && !cats.includes(selected)) {
+    opts += `<option value="${esc(selected)}">${esc(selected)}</option>`;
+  }
+  opts += `<option value="${NEWCAT_VALUE}">＋ 新規カテゴリ…</option>`;
+  sel.innerHTML = opts;
+  sel.value = selected || '';
+}
+
+let lastCatValue = '';
+function onCategoryChange(v) {
+  if (v === NEWCAT_VALUE) {
+    const name = prompt('新しいカテゴリ名を入力');
+    if (name && name.trim()) {
+      const cat = name.trim();
+      let stored = [];
+      try { stored = JSON.parse(localStorage.getItem('jinks_cats') || '[]'); } catch(e) { stored = []; }
+      if (!Array.isArray(stored)) stored = [];
+      if (!stored.includes(cat) && !CATEGORY_PRESET.includes(cat)) {
+        stored.push(cat);
+        localStorage.setItem('jinks_cats', JSON.stringify(stored));
+      }
+      populateCategorySelect(cat);
+      lastCatValue = cat;
+    } else {
+      // キャンセル/空は直前の選択に戻す
+      populateCategorySelect(lastCatValue);
+    }
+  } else {
+    lastCatValue = v;
+  }
+}
+
 function openModal() {
   document.getElementById('modal-title').textContent = 'タスクを追加';
   document.getElementById('edit-row').value = '';
@@ -1262,8 +1591,14 @@ function openModal() {
   document.getElementById('f-memo').value   = '';
   document.getElementById('f-status').value = '未着手';
   document.getElementById('f-pri').value    = '中';
-  document.getElementById('f-cat').value    = '';
-  document.getElementById('f-who').value    = '';
+  // 担当者・依頼者selectを初期化
+  document.getElementById('f-who').innerHTML = buildPersonOptions('担当者を選択');
+  setPersonSelect('f-who', 'f-who-other', '');
+  document.getElementById('f-requester').innerHTML = buildPersonOptions('（依頼者なし）');
+  setPersonSelect('f-requester', 'f-requester-other', '');
+  // カテゴリselectを初期化
+  populateCategorySelect('');
+  lastCatValue = '';
   document.getElementById('f-due').value    = '';
   document.getElementById('f-created').value = today();
   document.getElementById('modal').classList.add('open');
@@ -1279,8 +1614,14 @@ function openEditModal(row) {
   document.getElementById('f-memo').value   = t.メモ || '';
   document.getElementById('f-status').value = t.ステータス || '未着手';
   document.getElementById('f-pri').value    = t.優先度 || '中';
-  document.getElementById('f-cat').value    = t.カテゴリ || '';
-  document.getElementById('f-who').value    = t.担当者 || '';
+  // 担当者・依頼者selectを復元
+  document.getElementById('f-who').innerHTML = buildPersonOptions('担当者を選択');
+  setPersonSelect('f-who', 'f-who-other', t.担当者 || '');
+  document.getElementById('f-requester').innerHTML = buildPersonOptions('（依頼者なし）');
+  setPersonSelect('f-requester', 'f-requester-other', t.依頼者 || '');
+  // カテゴリselectを復元
+  populateCategorySelect(t.カテゴリ || '');
+  lastCatValue = t.カテゴリ || '';
   document.getElementById('f-due').value    = t.期限 ? String(t.期限).replace(/\//g,'-').substring(0,10) : '';
   document.getElementById('f-created').value = t.作成日 ? String(t.作成日).replace(/\//g,'-').substring(0,10) : '';
   document.getElementById('modal').classList.add('open');
@@ -1295,12 +1636,17 @@ async function saveTask() {
   if (!name) { toast('タスク名を入力してください', 'err'); return; }
 
   const row    = document.getElementById('edit-row').value;
+  // カテゴリ: __newcat__ や空はそのまま空扱い
+  let category = document.getElementById('f-cat').value;
+  if (category === NEWCAT_VALUE) category = '';
+  category = (category || '').trim();
   const params = {
     name,
     status:   document.getElementById('f-status').value,
     priority: document.getElementById('f-pri').value,
-    category: document.getElementById('f-cat').value.trim(),
-    assignee: document.getElementById('f-who').value.trim(),
+    category,
+    assignee:  getPersonValue('f-who', 'f-who-other'),
+    requester: getPersonValue('f-requester', 'f-requester-other'),
     due:      document.getElementById('f-due').value.replace(/-/g,'/'),
     memo:     document.getElementById('f-memo').value.trim(),
   };
@@ -1314,6 +1660,7 @@ async function saveTask() {
         t.優先度 = params.priority;
         t.カテゴリ = params.category;
         t.担当者 = params.assignee;
+        t.依頼者 = params.requester;
         t.期限 = params.due;
         t.メモ = params.memo;
       }
@@ -1327,6 +1674,7 @@ async function saveTask() {
         優先度: params.priority,
         カテゴリ: params.category,
         担当者: params.assignee,
+        依頼者: params.requester,
         期限: params.due,
         メモ: params.memo,
         作成日: today().replace(/-/g,'/')
